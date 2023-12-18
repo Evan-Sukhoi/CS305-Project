@@ -16,6 +16,20 @@ import threading
 import pathlib
 import traceback
 import json
+import base64
+
+class ClientAccount:
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
+        self.base64 = self.getBase64()
+
+    def getBase64(self):
+        return base64.b64encode('{}:{}'.format(self.username, self.password).encode('utf-8')).decode('utf-8')
+    
+clients = [ClientAccount('client1', '123'),
+           ClientAccount('client2', '123'),
+           ClientAccount('client3', '123')]
 
 class HttpServer:
     def __init__(self, client_socket, addr):
@@ -32,7 +46,6 @@ class HttpServer:
             self.client_socket.close()
 
     def handle_request(self):
-        # get the request from the client
         request = self.client_socket.recv(1024).decode('utf-8')
         print('Request: {}'.format(request))
 
@@ -43,11 +56,26 @@ class HttpServer:
         path = request_line[1]
         http_version = request_line[2]
 
+        headers = {}
+        for line in request[1:-2]:
+            key, value = line.split(': ')
+            headers[key] = value
+
+        Authertication = headers['Authorization']
+        base64 = Authertication.split(' ')[-1]
+        if base64 not in [client.base64 for client in clients]:
+            self.send_response(401)
+            header = 'WWW-Authenticate: Basic realm=Basic realm="Authorization Required"\r\n'
+            self.handle_error(401, 'Unauthorized', headers=header)
+            return
+
         # handle the request
         if method == 'GET':
             self.handle_get(path)
         elif method == 'POST':
             self.handle_post(path, request[-1])
+        elif method == 'HEAD':
+            self.handle_head(path)
         else:
             self.handle_error(405, 'Method Not Allowed')
 
@@ -63,71 +91,69 @@ class HttpServer:
             self.handle_error(404, 'Not Found')
 
     def handle_post(self, path, data):
+        return
+    
+    def handle_head(self, path):
         # if the path is a directory, return the index.html file
         if os.path.isdir(path):
             path = os.path.join(path, 'index.html')
 
         # if the path is a file, return the file
         if os.path.isfile(path):
-            self.handle_file(path)
+            self.handle_file(path, is_head=True)
         else:
             self.handle_error(404, 'Not Found')
 
-    def handle_file(self, path):
-        # get the file extension
-        extension = pathlib.Path(path).suffix
-
-        # get the file size
+    def handle_file(self, path, is_head=False):
+        extension = pathlib.Path(path).suffix # 拓展名
         file_size = os.path.getsize(path)
-
-        # get the file type
         file_type = mimetypes.types_map[extension]
-
-        # get the file modification time
         file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
-
-        # send the response header
         response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format('HTTP/1.1', file_size, file_type, file_time)
         self.client_socket.sendall(response_header.encode('utf-8'))
 
         # send the file
-        with open(path, 'rb') as f:
-            while True:
-                data = f.read(1024)
-                if not data:
-                    break
-                self.client_socket.sendall(data)
+        if not is_head:
+            with open(path, 'rb') as f:
+                while True:
+                    data = f.read(1024)
+                    if not data:
+                        break
+                    self.client_socket.sendall(data)
 
-    def handle_error(self, code, message):
-        # get the error page
-        path = os.path.join('error', '{}.html'.format(code))
+    def handle_error(self, code, message, headers=None):
+        error_message = f"<html><body><h1>{code} {message}</h1></body></html>"
+        content_length = len(error_message)
+        content_type = "text/html"
+        current_time = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
 
-        # get the file size
-        file_size = os.path.getsize(path)
+        response_header = f'HTTP/1.1 {code} {message}\r\n'
+        response_header += f'Content-Length: {content_length}\r\n'
+        response_header += f'Content-Type: {content_type}\r\n'
+        response_header += f'Last-Modified: {current_time}\r\n'
+        if headers:
+            response_header += headers + '\r\n'
+        response_header += '\r\n'
 
-        # get the file type
-        file_type = mimetypes.types_map['.html']
+        print("\r\nResponse Header: {}\r\n".format(response_header))
 
-        # get the file modification time
-        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
-
-        # send the response header
-        response_header = '{} {} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format('HTTP/1.1', code, message, file_size, file_type, file_time)
         self.client_socket.sendall(response_header.encode('utf-8'))
+        self.client_socket.sendall(error_message.encode('utf-8'))
 
-        # send the file
-        with open(path, 'rb') as f:
-            while True:
-                data = f.read(1024)
-                if not data:
-                    break
-                self.client_socket.sendall(data)
 
+terminate_flag = False
+
+def signal_handler(sig, frame):
+    global terminate_flag
+    print('Ctrl+C pressed. Exiting gracefully...')
+    terminate_flag = True
+
+signal.signal(signal.SIGINT, signal_handler)
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind(('localhost', 8080)) # bind the socket to host and port
 
-while True:
+while not terminate_flag:
     server_socket.listen(5) # start listening for incoming connections, 5 is the max number of queued connections
     client_socket, addr = server_socket.accept() # accept the connection, addr is the address bound to the socket on the other end of the connection, including the port number and IP address
     print('Got a connection from {}'.format(addr))
@@ -136,6 +162,6 @@ while True:
     thread = HttpServer(client_socket, addr)
     thread.start()
     print('Thread started')
-    thread.join() # wait for the thread to finish
-    print('Thread finished')
-    client_socket.close() # close the socket
+
+server_socket.close()
+print('Server closed')
