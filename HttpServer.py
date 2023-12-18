@@ -46,46 +46,64 @@ class HttpServer:
             self.client_socket.close()
 
     def handle_request(self):
-        request = self.client_socket.recv(1024).decode('utf-8')
-        print('Request: {}'.format(request))
+        # while True:
+            request = self.client_socket.recv(1024).decode('utf-8')
+            print('Request: {}'.format(request))
 
-        # parse the request
-        request = request.split('\r\n')
-        request_line = request[0].split(' ')
-        method = request_line[0]
-        path = request_line[1]
-        http_version = request_line[2]
+            # parse the request
+            request_body = request.split('\r\n\r\n', 1)[1]
+            request = request.split('\r\n')
+            request_line = request[0].split(' ')
+            method = request_line[0]
+            path = request_line[1]
+            http_version = request_line[2]
 
-        headers = {}
-        for line in request[1:-2]:
-            key, value = line.split(': ')
-            headers[key] = value
+            headers = {}
+            for line in request[1:-2]:
+                key, value = line.split(': ')
+                headers[key] = value
 
-        Authertication = headers['Authorization']
-        base64 = Authertication.split(' ')[-1]
-        if base64 not in [client.base64 for client in clients]:
-            self.send_response(401)
-            header = 'WWW-Authenticate: Basic realm=Basic realm="Authorization Required"\r\n'
-            self.handle_error(401, 'Unauthorized', headers=header)
-            return
+            if 'Authorization' not in headers:
+                header = 'WWW-Authenticate: Basic realm=Basic realm="Authorization Required"\r\n'
+                self.handle_error(401, 'Unauthorized', headers=header)
+                return
+            Authertication = headers['Authorization']
+            base64 = Authertication.split(' ')[-1]
+            if base64 not in [client.base64 for client in clients]:
+                # self.send_response(401)
+                self.handle_error(401, 'Unauthorized')
+                return
 
-        # handle the request
-        if method == 'GET':
-            self.handle_get(path)
-        elif method == 'POST':
-            self.handle_post(path, request[-1])
-        elif method == 'HEAD':
-            self.handle_head(path)
-        else:
-            self.handle_error(405, 'Method Not Allowed')
+            # handle the request
+            if method == 'GET':
+                self.handle_get(path)
+            elif method == 'POST':
+                self.handle_post(path, request[-1])
+            elif method == 'HEAD':
+                self.handle_head(path)
+            else:
+                self.handle_error(405, 'Method Not Allowed')
+            # if 'Connection' in headers:
+            #     if headers['Connection'] == 'close':
+            #         self.client_socket.close()
+            #         break
 
     def handle_get(self, path):
-        # if the path is a directory, return the index.html file
-        if os.path.isdir(path):
-            path = os.path.join(path, 'index.html')
+        print(path)
+        origin_path = ''
+        # modify to actual path
+        if path == '/':
+            origin_path = 'data'
+        else:
+            origin_path = os.path.join("data", path[1:])
 
+        # if the path is a directory, return the index.html file
+        if os.path.isdir(origin_path):
+            response_body = list_directory_html(origin_path, path)
+            response = f'HTTP/1.1 200 OK\r\n\r\n{response_body}'
+            self.client_socket.sendall(response.encode("utf-8"))
         # if the path is a file, return the file
-        if os.path.isfile(path):
+        elif os.path.isfile(origin_path):
             self.handle_file(path)
         else:
             self.handle_error(404, 'Not Found')
@@ -94,12 +112,21 @@ class HttpServer:
         return
     
     def handle_head(self, path):
-        # if the path is a directory, return the index.html file
-        if os.path.isdir(path):
-            path = os.path.join(path, 'index.html')
+        print(path)
+        origin_path = ''
+        # modify to actual path
+        if path == '/':
+            origin_path = 'data'
+        else:
+            origin_path = os.path.join("data", path[1:])
 
+        # if the path is a directory, return the index.html file
+        if os.path.isdir(origin_path):
+            response_body = list_directory_html(origin_path, path)
+            response = f'HTTP/1.1 200 OK\r\n\r\n{response_body}'
+            self.client_socket.sendall(response.encode("utf-8"))
         # if the path is a file, return the file
-        if os.path.isfile(path):
+        elif os.path.isfile( origin_path):
             self.handle_file(path, is_head=True)
         else:
             self.handle_error(404, 'Not Found')
@@ -140,6 +167,26 @@ class HttpServer:
         self.client_socket.sendall(response_header.encode('utf-8'))
         self.client_socket.sendall(error_message.encode('utf-8'))
 
+def list_directory_html(origin_path, web_path):
+    try:
+        with os.scandir(origin_path) as entries:
+            files_and_dirs = [entry.name for entry in entries]
+        links = []
+        parent_path = os.path.dirname(web_path)
+        print(origin_path)
+        print(parent_path)
+        if origin_path != 'data':
+            links.extend([f'<a href="/">/</a>', f'<a href="{parent_path}">../</a>'])
+            links.extend([f'<a href="{web_path[1:]}/{entry}">{entry}</a>' for entry in files_and_dirs])
+        else:
+            links.extend([f'<a href="{web_path[1:]}{entry}">{entry}</a>' for entry in files_and_dirs])
+        print(links)
+        # 合并所有链接
+        return "<br>".join(links)
+    except FileNotFoundError:
+        return "Directory not found"
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 terminate_flag = False
 
