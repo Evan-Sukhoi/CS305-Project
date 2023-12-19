@@ -62,9 +62,12 @@ class HttpServer:
         request_line = request[0].split(' ')
         method = request_line[0]
         path = request_line[1]
-        param = ''
+        params = {}
+
         if '?' in path:
-            path, param = path.split('?', 1)
+            path, query_string = path.split('?', 1)
+            # 解析查询字符串为字典
+            params = {k: v[0] for k, v in [param.split('=') for param in query_string.split('&')]}
         http_version = request_line[2]
 
         headers = {}
@@ -83,13 +86,19 @@ class HttpServer:
             self.handle_error(401, 'Unauthorized')
             return
 
+        self.generate_session(Authertication)
+
         # handle the request
         if method == 'GET':
-            self.handle_get(path, param)
+            # for Breakpoint Transmission
+            if 'Range' in headers:
+                self.handle_get(path, params, is_range=True)
+            else:
+                self.handle_get(path, params)
         elif method == 'POST':
             self.handle_post(path, request[-1])
         elif method == 'HEAD':
-            self.handle_head(path, param)
+            self.handle_head(path, params)
         else:
             self.handle_error(405, 'Method Not Allowed')
         # if 'Connection' in headers:
@@ -97,7 +106,7 @@ class HttpServer:
         #         self.client_socket.close()
         #         break
 
-    def handle_get(self, path, param):
+    def handle_get(self, path, param, is_range=False):
         print(path)
         # if it is url format
         http_url_pattern = re.compile(r'^(/[^/]*)*(\?.*)?$')
@@ -113,15 +122,24 @@ class HttpServer:
 
         # if the path is a directory, return the index.html file
         if os.path.isdir(origin_path):
-            if param == 'SUSTech-HTTP=0' or param == '':
-                self.handle_dir(origin_path, path, True)
-            elif param == 'SUSTech-HTTP=1':
-                self.handle_dir(origin_path, path, False)
+            if 'SUSTech-HTTP' not in param or param['SUSTech-HTTP'] == '0':
+                if 'chunked' not in param or param['chunked'] == '0':
+                    self.handle_dir(origin_path, path, is_html=True)
+                else:
+                    self.handle_dir(origin_path, path, is_html=True, is_chunked=True)
+            elif param['SUSTech-HTTP'] == '1':
+                if 'chunked' not in param or param['chunked'] == '0':
+                    self.handle_dir(origin_path, path)
+                else:
+                    self.handle_dir(origin_path, path, is_chunked=True)
             else:
                 self.handle_error(400, 'Bad Request')
         # if the path is a file, return the file
         elif os.path.isfile(origin_path):
-            self.handle_file(origin_path)
+            if 'chunked' not in param or param['chunked'] == '0':
+                self.handle_file(origin_path)
+            else:
+                self.handle_file(origin_path, is_chunked=True)
         else:
             self.handle_error(404, 'Not Found')
 
@@ -143,8 +161,8 @@ class HttpServer:
 
         # if the path is a directory, return the index.html file
         if os.path.isdir(origin_path):
-            if param == '':
-                self.handle_dir(origin_path, path, True)
+            if param == {}:
+                self.handle_dir(origin_path, path, is_html=True, is_head=True)
             else:
                 self.handle_error(405, 'Method Not Allowed')
         # if the path is a file, return the file
@@ -153,49 +171,57 @@ class HttpServer:
         else:
             self.handle_error(404, 'Not Found')
 
-    def handle_dir(self, origin_path, web_path, is_html, is_head=False):
-        response_body = []
-        response_header = ''
-        dir_time = datetime.datetime.fromtimestamp(os.path.getmtime(origin_path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
-        if is_html:
-            response_body = list_directory_html(origin_path, web_path)
-            dir_size = len(response_body)
-            dir_type = 'text/html'
-            response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format(
-                'HTTP/1.1', dir_size, dir_type, dir_time)
+    def handle_dir(self, origin_path, web_path, is_html=False, is_head=False, is_chunked=False):
+        # Chunked Transfer
+        if is_chunked:
+            pass
         else:
-            with os.scandir(origin_path) as entries:
-                for entry in entries:
-                    if entry.is_dir():
-                        response_body.append(f'{entry.name}/')
-                    else:
-                        response_body.append(f'{entry.name}')
-            response_body = str(response_body)
-            dir_size = len(response_body)
-            dir_type = 'text/plain'
+            response_body = []
+            response_header = ''
+            dir_time = datetime.datetime.fromtimestamp(os.path.getmtime(origin_path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
+            if is_html:
+                response_body = list_directory_html(origin_path, web_path)
+                dir_size = len(response_body)
+                dir_type = 'text/html'
+                response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format(
+                    'HTTP/1.1', dir_size, dir_type, dir_time)
+            else:
+                with os.scandir(origin_path) as entries:
+                    for entry in entries:
+                        if entry.is_dir():
+                            response_body.append(f'{entry.name}/')
+                        else:
+                            response_body.append(f'{entry.name}')
+                response_body = str(response_body)
+                dir_size = len(response_body)
+                dir_type = 'text/plain'
+                response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format(
+                    'HTTP/1.1', dir_size, dir_type, dir_time)
+            self.client_socket.sendall(response_header.encode("utf-8"))
+            if not is_head:
+                self.client_socket.sendall(response_body.encode('utf-8'))
+
+    def handle_file(self, path, is_head=False, is_chunked=False):
+        # Chunked Transfer
+        if is_chunked:
+            pass
+        else:
+            extension = pathlib.Path(path).suffix  # 拓展名
+            file_size = os.path.getsize(path)
+            file_type = mimetypes.types_map[extension]
+            file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
             response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format(
-                'HTTP/1.1', dir_size, dir_type, dir_time)
-        self.client_socket.sendall(response_header.encode("utf-8"))
-        if not is_head:
-            self.client_socket.sendall(response_body.encode('utf-8'))
+                'HTTP/1.1', file_size, file_type, file_time)
+            self.client_socket.sendall(response_header.encode('utf-8'))
 
-    def handle_file(self, path, is_head=False):
-        extension = pathlib.Path(path).suffix  # 拓展名
-        file_size = os.path.getsize(path)
-        file_type = mimetypes.types_map[extension]
-        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
-        response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format(
-            'HTTP/1.1', file_size, file_type, file_time)
-        self.client_socket.sendall(response_header.encode('utf-8'))
-
-        # send the file
-        if not is_head:
-            with open(path, 'rb') as f:
-                while True:
-                    data = f.read(1024)
-                    if not data:
-                        break
-                    self.client_socket.sendall(data)
+            # send the file
+            if not is_head:
+                with open(path, 'rb') as f:
+                    while True:
+                        data = f.read(1024)
+                        if not data:
+                            break
+                        self.client_socket.sendall(data)
 
     def handle_error(self, code, message, headers=None):
         error_message = f"<html><body><h1>{code} {message}</h1></body></html>"
@@ -215,6 +241,10 @@ class HttpServer:
 
         self.client_socket.sendall(response_header.encode('utf-8'))
         self.client_socket.sendall(error_message.encode('utf-8'))
+
+    # for cookie
+    def generate_session(self, info):
+        pass
 
 
 def list_directory_html(origin_path, web_path):
