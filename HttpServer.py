@@ -96,7 +96,11 @@ class HttpServer:
             else:
                 self.handle_get(path, params)
         elif method == 'POST':
-            self.handle_post(path, request[-1])
+            # for Breakpoint Transmission
+            if 'Range' in headers:
+                self.handle_post(path, request_body, params, is_range=True)
+            else:
+                self.handle_post(path, request_body, params)
         elif method == 'HEAD':
             self.handle_head(path, params)
         else:
@@ -143,8 +147,12 @@ class HttpServer:
         else:
             self.handle_error(404, 'Not Found')
 
-    def handle_post(self, path, data):
-        return
+    def handle_post(self, path, data, param, is_range=False):
+        operation = path.split('/')[-1]
+        if operation == 'upload':
+        elif operation == 'delete':
+        else:
+            self.handle_error(405, 'Method Not Allowed')
 
     def handle_head(self, path, param):
         print(path)
