@@ -59,6 +59,7 @@ class HttpServer(threading.Thread):
         self.session = None
         self.clientUsername = None
         self.response_header = ""
+        self.chunk_size = 128
 
     def run(self):
         try:
@@ -279,62 +280,103 @@ class HttpServer(threading.Thread):
         else:
             self.handle_error(404, 'Not Found')
 
+    def chunks(data, chunk_size=1024):
+        for i in range(0, len(data), chunk_size):
+            yield data[i:i + chunk_size]
+
     def handle_dir(self, origin_path, web_path, is_html=False, is_head=False, is_chunked=False):
-        # Chunked Transfer
-        if is_chunked:
-            pass
+        response_body = []
+        dir_type = ''
+        dir_time = datetime.datetime.fromtimestamp(os.path.getmtime(origin_path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+        # for HTML
+        if is_html:
+            response_body = list_directory_html(origin_path, web_path)
+            dir_type = 'text/html'
         else:
-            response_body = []
-            response_header = ''
-            dir_time = datetime.datetime.fromtimestamp(os.path.getmtime(origin_path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
-            if is_html:
-                response_body = list_directory_html(origin_path, web_path)
-                dir_size = len(response_body)
-                dir_type = 'text/html'
-                response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n'.format(
-                    'HTTP/1.1', dir_size, dir_type, dir_time)
+            with os.scandir(origin_path) as entries:
+                for entry in entries:
+                    if entry.is_dir():
+                        response_body.append(f'{entry.name}/')
+                    else:
+                        response_body.append(f'{entry.name}')
+            response_body = str(response_body)
+            dir_type = 'text/plain'
+
+        # for Chunk
+        if is_chunked:
+            response_header = '{} 200 OK\r\nContent-Type: {}\r\nLast-Modified: {}\r\nTransfer-Encoding: chunked\r\n'.format(
+                'HTTP/1.1', dir_type, dir_time)
+        else:
+            dir_size = len(response_body)
+            response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n'.format(
+                'HTTP/1.1', dir_size, dir_type, dir_time)
+        
+        # for session
+        response_header += self.response_header if self.response_header else ''
+        response_header += '\r\n'
+        self.response_header = None
+        
+        # send header
+        self.client_socket.sendall(response_header.encode("utf-8"))
+        Logger.debug("{} Response to {}:".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), self.addr))
+        Logger.text(response_header)
+
+        if not is_head:
+            if is_chunked:
+                Logger.debug('Chunked Transfer:')
+                for chunk in self.chunks(response_body, self.chunk_size):
+                    chunk_size = hex(len(chunk))[2:]
+                    self.client_socket.sendall((chunk_size + '\r\n').encode('utf-8'))
+                    self.client_socket.sendall(chunk.encode('utf-8'))
+                    self.client_socket.sendall('\r\n'.encode('utf-8'))
+                    Logger.text(chunk)
+                self.client_socket.sendall('0\r\n\r\n'.encode('utf-8'))
+                Logger.text('0\r\n\r\n')
             else:
-                with os.scandir(origin_path) as entries:
-                    for entry in entries:
-                        if entry.is_dir():
-                            response_body.append(f'{entry.name}/')
-                        else:
-                            response_body.append(f'{entry.name}')
-                response_body = str(response_body)
-                dir_size = len(response_body)
-                dir_type = 'text/plain'
-                response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format(
-                    'HTTP/1.1', dir_size, dir_type, dir_time)
-            response_header += self.response_header if self.response_header else ''
-            response_header += '\r\n'
-            self.response_header = None
-            self.client_socket.sendall(response_header.encode("utf-8"))
-            Logger.debug("{} Response to {}:".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), self.addr))
-            Logger.text(response_header)
-            if not is_head:
                 self.client_socket.sendall(response_body.encode('utf-8'))
                 Logger.text(response_body)
 
     def handle_file(self, path, is_head=False, is_chunked=False):
-        # Chunked Transfer
+        extension = pathlib.Path(path).suffix
+        file_type = mimetypes.types_map[extension]
+        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+        # for Chunk
         if is_chunked:
-            pass
+            response_header = '{} 200 OK\r\nContent-Type: {}\r\nLast-Modified: {}\r\nTransfer-Encoding: chunked\r\n'.format(
+                'HTTP/1.1', file_type, file_time)
         else:
-            extension = pathlib.Path(path).suffix  # 拓展名
             file_size = os.path.getsize(path)
-            file_type = mimetypes.types_map[extension]
-            file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
             response_header = '{} 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n'.format(
                 'HTTP/1.1', file_size, file_type, file_time)
-            response_header += self.response_header if self.response_header else ''
-            response_header += '\r\n'
-            self.response_header = None
-            self.client_socket.sendall(response_header.encode('utf-8'))
-            Logger.debug("{} Response to {}:".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), self.addr))
-            Logger.text(response_header)
+            
+        # for session
+        response_header += self.response_header if self.response_header else ''
+        response_header += '\r\n'
+        self.response_header = None
 
-            # send the file
-            if not is_head:
+        # send header
+        self.client_socket.sendall(response_header.encode('utf-8'))
+        Logger.debug("{} Response to {}:".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), self.addr))
+        Logger.text(response_header)
+
+        # send the file
+        if not is_head:
+            if is_chunked:
+                with open(path, 'rb') as f:
+                    while True:
+                        data = f.read(self.chunk_size)
+                        if not data:
+                            break
+                        chunk_size = hex(len(data))[2:]
+                        self.client_socket.sendall((chunk_size + '\r\n').encode('utf-8'))
+                        self.client_socket.sendall(data)
+                        self.client_socket.sendall('\r\n'.encode('utf-8'))
+                        Logger.text(data)
+                self.client_socket.sendall('0\r\n\r\n'.encode('utf-8'))
+                Logger.text('0\r\n\r\n')
+            else:
                 with open(path, 'rb') as f:
                     while True:
                         data = f.read(1024)

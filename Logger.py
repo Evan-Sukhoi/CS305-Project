@@ -1,3 +1,5 @@
+import time
+
 class Color:
     PURPLE = '\033[95m'
     CYAN = '\033[96m'
@@ -9,23 +11,22 @@ class Color:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
-
 class Logger:
     @staticmethod
     def info(message):
-        print(f"{Color.GREEN}[INFO] {message}{Color.END}")
+        print(f"{Color.GREEN}[INFO] {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {message}{Color.END}")
     @staticmethod
     def warn(message):
-        print(f"{Color.YELLOW}[WARN] {message}{Color.END}")
+        print(f"{Color.YELLOW}[WARN] {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {message}{Color.END}")
     @staticmethod
     def error(message):
-        print(f"{Color.RED}[ERROR]{message}{Color.END}")
+        print(f"{Color.RED}[ERROR]{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {message}{Color.END}")
     @staticmethod
     def debug(message):
-        print(f"{Color.BLUE}[DEBUG]{message}{Color.END}")
+        print(f"{Color.BLUE}[DEBUG]{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {message}{Color.END}")
     @staticmethod
     def custom(message, level='CUSTOM'):
-        print(f"{Color.PURPLE}[{level}] {message}{Color.END}")
+        print(f"{Color.PURPLE}[{level}]{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {message}{Color.END}")
     @staticmethod
     def text(message):
         print(message)
