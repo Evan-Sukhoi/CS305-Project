@@ -23,8 +23,8 @@
 
 原因在于:
 
-**绝对路径链接：链接以斜杠 / 开头，表示该链接是相对于网站根目录的绝对路径。比如，/client1/aaaa/aaaaa.txt 将被解释为 http://localhost:8080/client1/aaaa/aaaaa.txt，无论当前页面的 URL 是什么。它指向网站根目录下的特定路径**
+**绝对路径链接：链接以斜杠 / 开头，表示该链接是相对于网站根目录的绝对路径。比如，/client1/aaaa/a.txt 将被解释为 `http://localhost:8080/client1/aaaa/a.txt`，无论当前页面的 URL 是什么。它指向网站根目录下的特定路径**
 
-**相对路径链接：链接没有以斜杠 / 开头，表示相对于当前页面的路径。比如，client1/aaaa/bbb.txt 将被解释为相对于当前页面的路径，链接到当前页面所在目录下的 client1/aaaa/bbb.txt 文件**
+**相对路径链接：链接没有以斜杠 / 开头，表示相对于当前页面的路径。比如，client1/aaaa/b.txt 将被解释为相对于当前页面的路径，链接到当前页面所在目录下的 client1/aaaa/b.txt 文件**
 
 而回到最开始的那个get请求`GET /client1/aaaa HTTP/1.1`, 注意到这是的当前目录其实是/client (然后请求获取其中的aaaa)。因此，第二个被拼接成 `/client1` + `/` +`client1/aaaa/bbb.txt`
