@@ -155,7 +155,7 @@ class HttpServer(threading.Thread):
                 else:
                     self.handle_get(path, params)
             elif method == 'POST':
-                self.handle_post(request_body, params, methed=path, content_type=content_type)
+                self.handle_post(request_body, params, method=path, content_type=content_type)
             elif method == 'HEAD':
                 if 'Range' in headers: # for Breakpoint Transmission
                     range = headers['Range']
@@ -218,9 +218,19 @@ class HttpServer(threading.Thread):
         else:
             self.handle_error(404, 'Not Found')
 
-    def handle_post(self, data, param,  methed, content_type=None):
+    def handle_post(self, data, param,  method, content_type=None):
         http_url_pattern = re.compile(r'^(/[^/]*)*(\?.*)?$')
-        if not bool(re.match(http_url_pattern, methed)) or 'path' not in param:
+        if not bool(re.match(http_url_pattern, method)):
+            self.handle_error(400, 'Bad Request')
+            return
+        
+        operation = method.split('/')[-1]
+
+        if operation != 'upload' and operation != 'delete':
+            self.handle_error(405, 'Method Not Allowed')
+            return
+        
+        if 'path' not in param:
             self.handle_error(400, 'Bad Request')
             return
         
@@ -239,14 +249,10 @@ class HttpServer(threading.Thread):
             return
         
         target_path = os.path.normpath(os.path.join('data', path))
-        Logger.debug('target_path: {}'.format(target_path))
         if not os.path.exists(target_path):
             self.handle_error(404, 'Not Found')
             return
         
-        Logger.debug('data: {}'.format(data))
-        
-        operation = methed.split('/')[-1]
         if operation == 'upload':
             if not os.path.isdir(target_path):
                 self.handle_error(400, 'Bad Request')
@@ -275,8 +281,6 @@ class HttpServer(threading.Thread):
             else:
                 os.remove(target_path)
                 self.handle_response(200, 'OK')
-        else:
-            self.handle_error(405, 'Method Not Allowed')
 
     def chunks(self, data, chunk_size=1024):
         for i in range(0, len(data), chunk_size):
