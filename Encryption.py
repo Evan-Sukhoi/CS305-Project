@@ -41,7 +41,8 @@ def encrypt_with_public_key(public_key, plaintext):
             label=None
         )
     )
-    return ciphertext
+    ciphertext_base64 = base64.b64encode(ciphertext).decode('utf-8')
+    return ciphertext_base64
 
 
 def decrypt_with_private_key(private_key, ciphertext):
@@ -61,7 +62,8 @@ def symmetric_encrypt(key, plaintext):
     cipher = Cipher(algorithms.AES(key), modes.CFB(b'\0' * 16), backend=default_backend())
     encryptor = cipher.encryptor()
     ciphertext = encryptor.update(plaintext) + encryptor.finalize()
-    return ciphertext
+    ciphertext_base64 = base64.b64encode(ciphertext).decode('utf-8')
+    return ciphertext_base64
 
 
 def symmetric_decrypt(key, ciphertext):
@@ -71,34 +73,34 @@ def symmetric_decrypt(key, ciphertext):
     return plaintext
 
 
-# Server side
-server_private_key, server_public_key = generate_keys()
-
-# Client side
-client_private_key, client_public_key = generate_keys()
-
-# Client requests the public key of the server
-# In a real-world scenario, this could be done over a secure channel
-server_public_key_received = server_public_key
-
-# Client generates a key for symmetric encryption
-symmetric_key = os.urandom(32)
-
-# Client uses the public key obtained from the server to encrypt the symmetric key
-encrypted_symmetric_key = encrypt_with_public_key(server_public_key_received, symmetric_key)
-
-# Client sends the encrypted symmetric key to the server
-# In a real-world scenario, this communication should be secured (e.g., HTTPS)
-# Also, you may want to add proper error handling in production code
-server_decrypted_symmetric_key = decrypt_with_private_key(server_private_key, encrypted_symmetric_key)
-
-# Now both server and client have the same symmetric key for further communication
-
-# Example of symmetric encryption and decryption
-message = b'Hello, secure world!'
-encrypted_message = symmetric_encrypt(server_decrypted_symmetric_key, message)
-decrypted_message = symmetric_decrypt(server_decrypted_symmetric_key, encrypted_message)
-
-print(f"Original Message: {message}")
-print(f"Encrypted Message: {base64.b64encode(encrypted_message)}")
-print(f"Decrypted Message: {decrypted_message}")
+# # Server side
+# server_private_key, server_public_key = generate_keys()
+#
+# # Client side
+# client_private_key, client_public_key = generate_keys()
+#
+# # Client requests the public key of the server
+# # In a real-world scenario, this could be done over a secure channel
+# server_public_key_received = server_public_key
+#
+# # Client generates a key for symmetric encryption
+# symmetric_key = os.urandom(32)
+#
+# # Client uses the public key obtained from the server to encrypt the symmetric key
+# encrypted_symmetric_key = encrypt_with_public_key(server_public_key_received, symmetric_key)
+#
+# # Client sends the encrypted symmetric key to the server
+# # In a real-world scenario, this communication should be secured (e.g., HTTPS)
+# # Also, you may want to add proper error handling in production code
+# server_decrypted_symmetric_key = decrypt_with_private_key(server_private_key, encrypted_symmetric_key)
+#
+# # Now both server and client have the same symmetric key for further communication
+#
+# # Example of symmetric encryption and decryption
+# message = b'Hello, secure world!'
+# encrypted_message = symmetric_encrypt(server_decrypted_symmetric_key, message)
+# decrypted_message = symmetric_decrypt(server_decrypted_symmetric_key, encrypted_message)
+#
+# print(f"Original Message: {message}")
+# print(f"Encrypted Message: {base64.b64encode(encrypted_message)}")
+# print(f"Decrypted Message: {decrypted_message}")

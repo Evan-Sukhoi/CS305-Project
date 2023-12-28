@@ -32,7 +32,7 @@ class ClientAccount:
     def __init__(self, username, password):
         self.username = username
         self.password = password
-        self.base64 = self.getBase64()
+        self.base_64 = self.getBase64()
 
     def getBase64(self):
         return base64.b64encode('{}:{}'.format(self.username, self.password).encode('utf-8')).decode('utf-8')
@@ -64,6 +64,7 @@ class HttpServer(threading.Thread):
         self.response_header = ""
         self.chunk_size = 128
         self.private_key, self.public_key = e.generate_keys()
+        self.sym_key = None
 
     def run(self):
         try:
@@ -101,14 +102,22 @@ class HttpServer(threading.Thread):
                 key, value = line.split(': ')
                 headers[key] = value
 
+            if 'Encryption' in headers and headers['Encryption'] == 'enable':
+                if 'Authorization' in headers:
+                    print(type(headers['Authorization']))
+                    headers['Authorization'] = e.symmetric_decrypt(self.sym_key, base64.b64decode(headers['Authorization'])).decode('utf-8')
+                request_body = e.symmetric_decrypt(self.sym_key, base64.b64decode(request_body)).decode('utf-8')
+                print(headers['Authorization'])
+                print(request_body)
+
             header = 'WWW-Authenticate: Basic realm=Basic realm="Authorization Required"\r\n'
             cookie = None
             if 'Authorization' in headers:
                 Authertication = headers['Authorization']
-                base64 = Authertication.split(' ')[-1]
+                base_64 = Authertication.split(' ')[-1]
                 
                 for client in clients:
-                    if client.base64 == base64:
+                    if client.base_64 == base_64:
                         self.clientUsername = client.username
                         break
                 if self.clientUsername is None:
@@ -185,7 +194,8 @@ class HttpServer(threading.Thread):
             self.handle_error(400, 'Bad Request')
             return
 
-        if 'Encryption' in param and param["Encryption"] == 1:
+
+        if 'Encryption' in param and param["Encryption"] == '1':
             self.handle_encryption()
             return
 
@@ -218,18 +228,24 @@ class HttpServer(threading.Thread):
         else:
             self.handle_error(404, 'Not Found')
 
-    def handle_post(self, data, param,  method, content_type=None):
+    def handle_post(self, data, param, method, content_type=None):
+        # for asy_encryption
+        if method == '/sendkey':
+            self.sym_key = e.decrypt_with_private_key(self.private_key, base64.b64decode(data))
+            self.handle_response(200, 'OK')
+            return
+
         http_url_pattern = re.compile(r'^(/[^/]*)*(\?.*)?$')
         if not bool(re.match(http_url_pattern, method)):
             self.handle_error(400, 'Bad Request')
             return
-        
+
         operation = method.split('/')[-1]
 
         if operation != 'upload' and operation != 'delete':
             self.handle_error(405, 'Method Not Allowed')
             return
-        
+
         if 'path' not in param:
             self.handle_error(400, 'Bad Request')
             return
@@ -252,7 +268,7 @@ class HttpServer(threading.Thread):
         if not os.path.exists(target_path):
             self.handle_error(404, 'Not Found')
             return
-        
+
         if operation == 'upload':
             if not os.path.isdir(target_path):
                 self.handle_error(400, 'Bad Request')
@@ -456,10 +472,9 @@ class HttpServer(threading.Thread):
 
     def handle_encryption(self):
         response_body = self.public_key
-        response_header = '{} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n'.format(
+        response_header = '{} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n\r\n'.format(
             'HTTP/1.1', '200 OK', len(response_body), 'text/plain', datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT'))
-        self.client_socket.sendall(response_header.encode('utf-8'))
-        self.client_socket.sendall(response_body.encode('utf-8'))
+        self.client_socket.sendall(response_header.encode('utf-8') + response_body)
 
 
 def list_directory_html(origin_path, web_path):
