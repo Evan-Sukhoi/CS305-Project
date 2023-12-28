@@ -201,10 +201,7 @@ class HttpServer(threading.Thread):
             return
 
         # modify to actual path
-        if path == '/':
-            origin_path = 'data'
-        else:
-            origin_path = os.path.join("data", path[1:])
+        origin_path = os.path.join("data", path[1:])
 
         # if the path is a directory, return the index.html file
         if os.path.isdir(origin_path):
@@ -480,33 +477,35 @@ class HttpServer(threading.Thread):
         self.client_socket.sendall(response_header.encode('utf-8') + response_body)
 
 def get_icon(entry):
-    icon_path = 'resource/icons/default_icon.png' 
+    icon_path = '/resource/icons/default.png' 
     if entry.is_dir():
-        icon_path = 'resource/icons/file-folder.png'
+        icon_path = '/resource/icons/file-folder.png'
     else:
         file_extension = os.path.splitext(entry.name)[1].lower()
         if file_extension == '.png' or file_extension == '.jpg' or file_extension == '.jpeg' or file_extension == '.gif' or file_extension == '.bmp':
-            icon_path = 'resource/icons/image.png'
+            icon_path = '/resource/icons/image.png'
         elif file_extension == '.js':
-            icon_path = 'resource/icons/js-file.png'
+            icon_path = '/resource/icons/js-file.png'
         elif file_extension == '.mp3' or file_extension == '.wav' or file_extension == '.flac':
-            icon_path = 'resource/icons/music.png'
+            icon_path = '/resource/icons/music.png'
         elif file_extension == '.pdf':
-            icon_path = 'resource/icons/pdf.png'
+            icon_path = '/resource/icons/pdf.png'
         elif file_extension == '.php':
-            icon_path = 'resource/icons/php.png'
+            icon_path = '/resource/icons/php.png'
         elif file_extension == '.ppt' or file_extension == '.pptx':
-            icon_path = 'resource/icons/ppt.png'
+            icon_path = '/resource/icons/ppt.png'
         elif file_extension == '.txt':
-            icon_path = 'resource/icons/txt.png'
+            icon_path = '/resource/icons/txt.png'
         elif file_extension == '.mp4' or file_extension == '.avi' or file_extension == '.mov':
-            icon_path = 'resource/icons/video.png'
+            icon_path = '/resource/icons/video.png'
         elif file_extension == '.doc' or file_extension == '.docx':
-            icon_path = 'resource/icons/word.png'
+            icon_path = '/resource/icons/word.png'
         elif file_extension == '.xls' or file_extension == '.xlsx':
-            icon_path = 'resource/icons/xls.png'
+            icon_path = '/resource/icons/xls.png'
         elif file_extension == '.zip' or file_extension == '.rar' or file_extension == '.7z':
-            icon_path = 'resource/icons/zip.png'
+            icon_path = '/resource/icons/zip.png'
+        elif file_extension == '.py':
+            icon_path = '/resource/icons/py.png'
     return icon_path
 
 
@@ -550,25 +549,23 @@ def list_directory_html(origin_path, web_path):
     try:
         links = []
         parent_path = os.path.dirname(web_path)
+        if web_path == '/':
+            web_path = ''
         Logger.debug('origin_path: {}'.format(origin_path))
         Logger.debug('web_path: {}'.format(web_path))
         with os.scandir(origin_path) as entries:
-            if origin_path != 'data':
-                links.extend([f'<li><a href="/">/</a></li>', f'<li><a href="{parent_path}">../</a></li>'])
-                for entry in entries:
-                    icon_path = get_icon(entry)
-                    if entry.is_dir():
-                        links.append(f'<img src="{icon_path}" width="20" height="20"><li><a href="{web_path[1:]}/{entry.name}">{entry.name}/</a></li>')
-                    else:
-                        links.append(f'<img src="{icon_path}" width="20" height="20"><li><a href="{web_path[1:]}/{entry.name}">{entry.name}</a></li>')
-            else:
-                for entry in entries:
-                    icon_path = get_icon(entry)
-                    if entry.is_dir():
-                        links.append(f'<img src="{icon_path}" width="20" height="20"><li><a href="{web_path[1:]}{entry.name}">{entry.name}/</a></li>')
-                    else:
-                        links.append(f'<img src="{icon_path}" width="20" height="20"><li><a href="{web_path[1:]}{entry.name}">{entry.name}</a></li>')
-        
+            if origin_path != 'data\\':
+                links.extend([f'<li><a href="/"><img src="/resource/icons/home.png" width="20" height="20">/   </a>', 
+                              f'<a href="{parent_path}"><img src="/resource/icons/go-back.png" width="20" height="20">../</a></li>'])
+            for entry in entries:
+                Logger.debug('entry: {}'.format(entry.name))
+                icon_path = get_icon(entry)
+                if entry.is_dir():
+                    links.append(f'<li><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}/</a></li>')
+                else:
+                    Logger.debug('entry: {}'.format(entry.name))
+                    links.append(f'<li><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}</a></li>')
+
         html_content += '\n'.join(links)
         html_content += """
         </ul>
