@@ -19,6 +19,7 @@ import json
 import base64
 import uuid
 import re
+import gzip
 
 from Logger import Logger
 
@@ -144,24 +145,28 @@ class HttpServer(threading.Thread):
 
             # handle the request
             if method == 'GET':
-                # for Breakpoint Transmission
-                if 'Range' in headers:
-                    try:
-                        range = headers['Range'].split('=')[1]
-                    except:
-                        self.handle_error(400, 'Bad Request')
-                        return
+                if 'Range' in headers: # for Breakpoint Transmission
+                    range = headers['Range']
+                    if re.match(r'^bytes=', range): # eg. bytes=0-100
+                        range = range.split('=')[1]
                     self.handle_get(path, params, range=range)
                 else:
                     self.handle_get(path, params)
             elif method == 'POST':
-                # for Breakpoint Transmission
-                if 'Range' in headers:
-                    self.handle_post(request_body, params, methed=path, content_type=content_type, is_range=True)
-                else:
-                    self.handle_post(request_body, params, methed=path, content_type=content_type)
+                self.handle_post(request_body, params, methed=path, content_type=content_type)
             elif method == 'HEAD':
-                self.handle_head(path, params, range=range)
+                if 'Range' in headers: # for Breakpoint Transmission
+                    range = headers['Range']
+                    if re.match(r'^bytes=', range): # eg. bytes=0-100
+                        range = range.split('=')[1]
+
+                    if re.match(r'^\d+-\d+$|^\d+-$|^-\d+$', range): # eg. 0-100, 100-, -100
+                        self.handle_get(path, params, range=range, is_head=True)
+                    else:
+                        self.handle_error(400, 'Bad Request')
+                        return
+                else:
+                    self.handle_get(path, params, is_head=True)
             else:
                 self.handle_error(405, 'Method Not Allowed')
             if 'Connection' in headers:
@@ -171,7 +176,7 @@ class HttpServer(threading.Thread):
         Logger.info('{} Connection closed {}'.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), self.addr))
         self.client_socket.close()
 
-    def handle_get(self, path, param, range=None):
+    def handle_get(self, path, param, range=None, is_head=False):
         # if it is url format
         http_url_pattern = re.compile(r'^(/[^/]*)*(\?.*)?$')
         if not bool(re.match(http_url_pattern, path)):
@@ -188,26 +193,26 @@ class HttpServer(threading.Thread):
         if os.path.isdir(origin_path):
             if 'SUSTech-HTTP' not in param or param['SUSTech-HTTP'] == '0':
                 if 'chunked' not in param or param['chunked'] == '0':
-                    self.handle_dir(origin_path, path, is_html=True, range=range)
+                    self.handle_dir(origin_path, path, is_html=True, range=range, is_head=is_head)
                 else:
-                    self.handle_dir(origin_path, path, is_html=True, is_chunked=True, range=range)
+                    self.handle_dir(origin_path, path, is_html=True, is_chunked=True, range=range, is_head=is_head)
             elif param['SUSTech-HTTP'] == '1':
                 if 'chunked' not in param or param['chunked'] == '0':
-                    self.handle_dir(origin_path, path, range=range)
+                    self.handle_dir(origin_path, path, range=range, is_head=is_head)
                 else:
-                    self.handle_dir(origin_path, path, is_chunked=True, range=range)
+                    self.handle_dir(origin_path, path, is_chunked=True, range=range, is_head=is_head)
             else:
                 self.handle_error(400, 'Bad Request')
         # if the path is a file, return the file
         elif os.path.isfile(origin_path):
             if 'chunked' not in param or param['chunked'] == '0':
-                self.handle_file(origin_path, range=range)
+                self.handle_file(origin_path, range=range, is_head=is_head)
             else:
-                self.handle_file(origin_path, is_chunked=True, range=range)
+                self.handle_file(origin_path, is_chunked=True, range=range, is_head=is_head)
         else:
             self.handle_error(404, 'Not Found')
 
-    def handle_post(self, data, param,  methed, content_type=None,is_range=False):
+    def handle_post(self, data, param,  methed, content_type=None):
         http_url_pattern = re.compile(r'^(/[^/]*)*(\?.*)?$')
         if not bool(re.match(http_url_pattern, methed)) or 'path' not in param:
             self.handle_error(400, 'Bad Request')
@@ -267,30 +272,6 @@ class HttpServer(threading.Thread):
         else:
             self.handle_error(405, 'Method Not Allowed')
 
-    def handle_head(self, path, param, range=None):
-        # if it is url format
-        http_url_pattern = re.compile(r'^(/[^/]*)*(\?.*)?$')
-        if not bool(re.match(http_url_pattern, path)):
-            self.handle_error(400, 'Bad Request')
-            return
-        # modify to actual path
-        if path == '/':
-            origin_path = 'data'
-        else:
-            origin_path = os.path.join("data", path[1:])
-
-        # if the path is a directory, return the index.html file
-        if os.path.isdir(origin_path):
-            if param == {}:
-                self.handle_dir(origin_path, path, is_html=True, is_head=True, range=range)
-            else:
-                self.handle_error(405, 'Method Not Allowed')
-        # if the path is a file, return the file
-        elif os.path.isfile(origin_path):
-            self.handle_file(path, is_head=True, range=range)
-        else:
-            self.handle_error(404, 'Not Found')
-
     def chunks(self, data, chunk_size=1024):
         for i in range(0, len(data), chunk_size):
             yield data[i:i + chunk_size]
@@ -317,6 +298,9 @@ class HttpServer(threading.Thread):
                     self.handle_error(416, 'Range Not Satisfiable')
                     return
                 range_pairs.append((length - end, length - 1))
+            else:
+                self.handle_error(416, 'Range Not Satisfiable')
+                return
         # sort the range pairs according to the start
         range_pairs.sort(key=lambda x: x[0])
         last_rp = range_pairs[0]
@@ -343,6 +327,7 @@ class HttpServer(threading.Thread):
 
     def handle_send(self, response_body, content_type, last_modified, is_chunked=False, range=None, is_head=False):
         code = '200 OK'
+        response_body = gzip.compress(response_body)
         content_length = len(response_body)
         if range is not None:
             boundary = self.generate_boundary()
@@ -363,10 +348,10 @@ class HttpServer(threading.Thread):
         
         # for chunk
         if is_chunked:
-            response_header = '{} {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\nTransfer-Encoding: chunked\r\n'.format(
+            response_header = '{} {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\nTransfer-Encoding: chunked\r\nContent-Encoding: gzip\r\n'.format(
                 'HTTP/1.1', code, content_type, last_modified)
         else:
-            response_header = '{} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n'.format(
+            response_header = '{} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\nContent-Encoding: gzip\r\n'.format(
                 'HTTP/1.1', code, content_length, content_type, last_modified)
         
         # for session
@@ -443,7 +428,6 @@ class HttpServer(threading.Thread):
         response_header += '\r\n'
 
         if is_error:
-
             Logger.warn("Response to {}, due to ({} {}, log: {}):".format(self.addr, code, message, log))
             Logger.text(response_header + response_body)
         else:
