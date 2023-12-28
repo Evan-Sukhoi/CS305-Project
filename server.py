@@ -20,6 +20,7 @@ import base64
 import uuid
 import re
 import gzip
+import Encryption as e
 
 from Logger import Logger
 
@@ -62,6 +63,7 @@ class HttpServer(threading.Thread):
         self.clientUsername = None
         self.response_header = ""
         self.chunk_size = 128
+        self.private_key, self.public_key = e.generate_keys()
 
     def run(self):
         try:
@@ -181,6 +183,10 @@ class HttpServer(threading.Thread):
         http_url_pattern = re.compile(r'^(/[^/]*)*(\?.*)?$')
         if not bool(re.match(http_url_pattern, path)):
             self.handle_error(400, 'Bad Request')
+            return
+
+        if 'Encryption' in param and param["Encryption"] == 1:
+            self.handle_encryption()
             return
 
         # modify to actual path
@@ -443,6 +449,13 @@ class HttpServer(threading.Thread):
         session = Session(session_id, auth, username, time.time(), 3600)
         sessions.append(session)
         return session_id
+
+    def handle_encryption(self):
+        response_body = self.public_key
+        response_header = '{} {}\r\nContent-Length: {}\r\nContent-Type: {}\r\nLast-Modified: {}\r\n'.format(
+            'HTTP/1.1', '200 OK', len(response_body), 'text/plain', datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT'))
+        self.client_socket.sendall(response_header.encode('utf-8'))
+        self.client_socket.sendall(response_body.encode('utf-8'))
 
 
 def list_directory_html(origin_path, web_path):
