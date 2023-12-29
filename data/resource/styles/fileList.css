@@ -1,26 +1,116 @@
-/* 调整分隔线的间距 */
-.separator {
-    margin-top: 20px;
-    margin-bottom: 20px;
+.toolbar{
+    margin-bottom: 10px;
+    text-align: center;
+    max-width: 1350px; /* Adjust the max-width as needed */
+    margin-left: auto; /* Optional: To center the toolbar horizontally */
+    margin-right: auto; 
 }
 
-/* 调整链接之间的间距 */
+.toolbar-left{
+    float: left;
+}
+
+.toolbar-right{
+    float: right;
+}
+
+.toolbar-right a {
+    text-decoration: none;
+    display: inline-block;
+    margin-left: 10px; /* Adjust margin as needed */
+    color: #333; /* Text color */
+}
+
+.toolbar-right a img {
+    vertical-align: middle; /* Align image vertically */
+    margin-right: 5px; /* Adjust margin as needed between image and text */
+}
+
+
+/* 链接间距 */
 .navigation-link {
-    margin-right: 10px; /* 可以根据需要调整右侧间距 */
+    margin-right: 10px; /* 右侧间距 */
+}
+
+.folder-links {
+    width: 400px; /* Adjust the width as needed */
+    /* Existing styles */
+    background-color: #f3f3f3;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    display: inline-block;
+    margin-bottom: 10px;
+}
+
+.folder-links ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.folder-links ul li {
+  display: inline;
+  font-size: 16px;
+}
+
+.folder-links ul li:not(:last-child):after {
+  content: '>';
+  margin: 0 5px;
+  color: #666;
+  font-size: 24px;
+}
+
+.folder-links ul li a {
+  text-decoration: none;
+  color: #333;
+  font-size: 24px;
+}
+
+.folder-links ul li a:hover {
+  text-decoration: underline;
+  color: #000;
+}
+
+button {
+    border: none; /* Remove border */
+    background: none; /* Remove background */
+    display: inline-flex;
+    align-items: center;
+}
+
+.button-text {
+    font-size: 20px;
+    font-family: Verdana, Geneva, Tahoma, sans-serif;
 }
 
 body {
     font-family: Arial, sans-serif;
     margin: 20px;
+    font-family: Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
+    font-size: 20px;
+    background-color: #fefefe;
 }
 
 h1 {
     color: #333;
+    text-align: center;
+    font-size: 48px;
 }
 
 table {
     border-collapse: collapse;
+    margin: auto;
     width: 80%;
+}
+
+table tr:nth-child(odd) {
+    background-color: #FAF3E0; 
+}
+
+/* 偶数行 */
+table tr:nth-child(even) {
+    background-color: #f9f9f9; 
 }
 
 th, td {

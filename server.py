@@ -18,15 +18,18 @@ import traceback
 import json
 import base64
 import uuid
-import re
-import gzip
-import Encryption as e
 
 from Logger import Logger
 
 # other module can be used according to https://github.com/Leosang-lx/SUSTech-CS305-2023Fall
 import re
+import gzip
+import Encryption as e
+import urllib.parse
 
+mimetypes.init()
+mimetypes.add_type('application/vnd.openxmlformats-officedocument.presentationml.presentation', '.pptx')
+mimetypes.add_type('text/markdown', '.md')
 
 class ClientAccount:
     def __init__(self, username, password):
@@ -73,35 +76,46 @@ class HttpServer(threading.Thread):
             Logger.error('Exception: {} at line {}'.format(e, e.__traceback__.tb_next.tb_lineno))
             self.handle_error(400, 'Bad Request')
             self.client_socket.close()
-            # raise e
+            raise e
 
     def handle_request(self):
         while True:
-            request = self.client_socket.recv(4096).decode('utf-8')
-            if request == '':
+            request = self.client_socket.recv(4096)
+            if request == b'':
                 break
-            Logger.debug('{} Request from {}:'.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), self.addr))
-            Logger.text(request)
+            try:
+                request_header, request_body = request.split(b'\r\n\r\n', 1)
+            except:
+                Logger.warn(request)
+            request_header = request_header.decode('utf-8')
+            Logger.debug('{} Request headers from {}:'.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), self.addr))
+            Logger.text(request_header)
 
             # parse the request
-            request_header, request_body = request.split('\r\n\r\n', 1)
+            # request_header, request_body = request.split('\r\n\r\n', 1)
             request_header = request_header.split('\r\n')
-            request_line = request_header[0].split(' ')
-            method = request_line[0]
-            path = request_line[1]
+            method, path, http_version = request_header[0].split(' ')
+            path = urllib.parse.unquote(path)
             params = {}
 
             if '?' in path:
                 path, query_string = path.split('?', 1)
                 # 解析查询字符串为字典
                 params = {k: v for k, v in [param.split('=') for param in query_string.split('&')]}
-            http_version = request_line[2]
 
 
             headers = {}
             for line in request_header[1:]:
                 key, value = line.split(': ')
                 headers[key] = value
+            
+            if 'Content-Length' in headers:
+                request_content_length = headers['Content-Length']
+                while len(request_body) < int(request_content_length):
+                    Logger.debug('Supplement from {}'.format(self.addr))
+                    request = self.client_socket.recv(4096)
+                    request_body += request
+                    # Logger.text(request)
 
             if 'Encryption' in headers and headers['Encryption'] == 'enable':
                 if 'Authorization' in headers:
@@ -246,7 +260,7 @@ class HttpServer(threading.Thread):
 
         operation = method.split('/')[-1]
 
-        if operation != 'upload' and operation != 'delete':
+        if operation != 'upload' and operation != 'delete' and operation != 'mkdir':
             self.handle_error(405, 'Method Not Allowed')
             return
 
@@ -269,7 +283,7 @@ class HttpServer(threading.Thread):
             return
         
         target_path = os.path.normpath(os.path.join('data', path))
-        if not os.path.exists(target_path):
+        if not os.path.exists(target_path) and operation != 'mkdir':
             self.handle_error(404, 'Not Found')
             return
 
@@ -283,13 +297,18 @@ class HttpServer(threading.Thread):
                 except:
                     self.handle_error(400, 'Bad Request')
                     return
-                files = data.split('--' + boundary)[1:-1]
+                boundary = ('--' + boundary).encode('utf-8')
+                files = data.split(boundary)[1:-1]
+                content = b''
                 for file in files:
-                    file = file.split('\r\n\r\n')
-                    file_name = file[0].split('; ')[2].split('=')[1][1:-1]
+                    file = file.split(b'\r\n\r\n', 1)
+                    name_index = file[0].find(b'filename="') + 10
+                    file_name = file[0][name_index:file[0].find(b'"', name_index)].decode('utf-8')
                     file_data = file[1][:-2]
-                    with open(os.path.join(target_path, file_name), 'wb') as f:
-                        f.write(file_data.encode('utf-8'))
+                    # Logger.debug('target_path: {}, file_name: {}, file_data: {}'.format(target_path, file_name, file_data))
+                    content += file_data
+                with open(os.path.join(target_path, file_name), 'wb') as f:
+                    f.write(content)
                 self.handle_response(200, 'OK')
         elif operation == 'delete':
             if os.path.isdir(target_path):
@@ -297,9 +316,16 @@ class HttpServer(threading.Thread):
                     os.rmdir(target_path)
                     self.handle_response(200, 'OK')
                 except:
-                    self.handle_error(400, 'Bad Request: directory is not empty')
+                    self.handle_error(409, 'Conflict', log='directory not empty')
             else:
                 os.remove(target_path)
+                self.handle_response(200, 'OK')
+        elif operation == 'mkdir':
+            Logger.debug('target_path: {}'.format(target_path))
+            if os.path.isdir(target_path):
+                self.handle_error(409, 'Conflict', log='directory already exists')
+            else:
+                os.mkdir(target_path)
                 self.handle_response(200, 'OK')
 
     def chunks(self, data, chunk_size=1024):
@@ -434,7 +460,6 @@ class HttpServer(threading.Thread):
         extension = pathlib.Path(path).suffix
         file_type = mimetypes.types_map[extension]
         file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
-        response_body = ''
         with open(path, 'rb') as f:
             response_body = f.read()
         self.handle_send(response_body, file_type, file_time, is_chunked=is_chunked, range=range, is_head=is_head)
@@ -505,6 +530,9 @@ def get_icon_type(entry):
         elif file_extension == '.txt':
             icon_path = '/resource/icons/txt.png'
             file_type = 'Text'
+        elif file_extension == '.md':
+            icon_path = '/resource/icons/md.png'
+            file_type = 'Markdown'
         elif file_extension == '.mp4' or file_extension == '.avi' or file_extension == '.mov':
             icon_path = '/resource/icons/video.png'
         elif file_extension == '.doc' or file_extension == '.docx':
@@ -545,30 +573,56 @@ def transfer_size(size):
 
 def list_directory_html(origin_path, web_path):
     links = []
+    # split the path with '/' or '\'
+    path_parts = os.path.normpath(origin_path).split(os.sep)
     parent_path = os.path.dirname(web_path)
+    print(path_parts)
+    folder_links_html = '<div class="folder-links">'
+    folder_links_html += '<ul>'
+    c_path = '/'
+    folder_links_html += f'<li><a href="javascript:void(0)"><img src="/resource/icons/monitor.png" width="20" height="20"></a></li>'
+    folder_links_html += f'<li><a href="{c_path}">data</a></li>'
+    for i in range(1, len(path_parts)):
+        c_path += path_parts[i] + '/'
+        folder_links_html += f'<li><a href="{c_path}">{path_parts[i]}</a></li>'
+    folder_links_html += '</ul></div>'
+    print(folder_links_html)
+
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <link rel="stylesheet" href="/resource/styles/fileList.css">
+        <script src="/resource/scripts/del.js"></script>
         <meta charset="UTF-8">
         <title>Directory listing for {origin_path}</title>
     </head>
     <body>
-        <h1>Directory listing for {origin_path}</h1>
-        <hr class="separator">
-        <a href="/" class="navigation-link"><img src="/resource/icons/home.png" width="20" height="20">/</a>
-        <a href="{parent_path}" class="navigation-link"><img src="/resource/icons/go-back.png" width="20" height="20">../</a>
-        <hr class="separator">
+        <h1>LeeTown HTTP Server</h1>
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <a href="/" class="navigation-link"><img src="/resource/icons/home.png" width="30" height="30">/</a>
+                <a href="{parent_path}" class="navigation-link"><img src="/resource/icons/go-back.png" width="30" height="30">../</a>
+                {folder_links_html}
+            </div>
+            <div class="toolbar-right">
 
-    <table>
-        <tr>
-            <th>File Name</th>
-            <th>File Type</th>
-            <th>Last Modified</th>
-            <th>Size</th>
-            <th>Delete<th>
-        </tr>
+                <button onclick="uploadFile('{web_path}')"><img src="/resource/icons/upload.png" width="25" height="25">
+                    <span class="button-text">Upload</span>
+                </button>
+                <button onclick="makeDir('{web_path}')"><img src="/resource/icons/add-folder.png" width="25" height="25">
+                    <span class="button-text">Add Folder</span>
+                </button>
+            </div>
+        </div>
+        <table>
+            <tr>
+                <th>File Name</th>
+                <th>File Type</th>
+                <th>Last Modified</th>
+                <th>Size</th>
+                <th>Operation</th>
+            </tr>
     """
     try:
         if web_path == '/':
@@ -576,6 +630,7 @@ def list_directory_html(origin_path, web_path):
         Logger.debug('origin_path: {}'.format(origin_path))
         Logger.debug('web_path: {}'.format(web_path))
         with os.scandir(origin_path) as entries:
+            delete_icon_path = '/resource/icons/delete.png'
             # if origin_path != 'data\\':
             #     links.extend([f'<li><a href="/"><img src="/resource/icons/home.png" width="20" height="20">/   </a>', 
             #                 f'<a href="{parent_path}"><img src="/resource/icons/go-back.png" width="20" height="20">../</a></li>'])
@@ -585,17 +640,24 @@ def list_directory_html(origin_path, web_path):
                 if entry.is_dir():
                     modification_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
                     size = get_folder_size(file_path)
-                    links.append(f'<tr><td><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}/</a></td>')
-                    links.append(f'<td>{file_type}</td><td>{modification_time}</td><td>{size}</td></tr>')
+                    links.append(f'<tr><td><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="25" height="25">{entry.name}/</a></td>')
+                    links.append(f'<td>{file_type}</td><td>{modification_time}</td><td>{size}</td>')
+                    # delete the folder
+                    links.append(f'<td><button onclick="deleteFile(\'{web_path}/{entry.name}\')"><img src="{delete_icon_path}" width="25" height="25">\
+                                    <span class="button-text">Delete</span>\
+                                    </button></td></tr>')
                 else:
                     modification_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
                     file_size = transfer_size(os.path.getsize(file_path))
-                    links.append(f'<tr><td><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}</a></td>')
-                    links.append(f'<td>{file_type}</td><td>{modification_time}</td><td>{file_size}</td></tr>')
+                    links.append(f'<tr><td><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="25" height="25">{entry.name}</a></td>')
+                    links.append(f'<td>{file_type}</td><td>{modification_time}</td><td>{file_size}</td>')
+                    # delete the file
+                    links.append(f'<td><button onclick="deleteFile(\'{web_path}/{entry.name}\')"><img src="{delete_icon_path}" width="25" height="25">\
+                                    <span class="button-text">Delete</span>\
+                                    </button></td></tr>')
         html_content += '\n'.join(links)
         html_content += """
         </ul>
-        <hr>
         </body>
         </html>
         """
