@@ -70,9 +70,9 @@ class HttpServer(threading.Thread):
         try:
             self.handle_request()
         except Exception as e:
+            Logger.error('Exception: {} at line {}'.format(e, e.__traceback__.tb_next.tb_lineno))
             self.handle_error(400, 'Bad Request')
             self.client_socket.close()
-            Logger.error('Exception: {} at line {}'.format(e, e.__traceback__.tb_next.tb_lineno))
             # raise e
 
     def handle_request(self):
@@ -353,7 +353,6 @@ class HttpServer(threading.Thread):
 
     def handle_send(self, response_body, content_type, last_modified, is_chunked=False, range=None, is_head=False):
         code = '200 OK'
-        response_body = gzip.compress(response_body)
         content_length = len(response_body)
         if range is not None:
             boundary = self.generate_boundary()
@@ -370,6 +369,7 @@ class HttpServer(threading.Thread):
             response_body_range += '--{}--\r\n'.format(boundary)
             response_body = response_body_range.encode('utf-8')
         
+        response_body = gzip.compress(response_body)
         content_length = len(response_body)
         
         # for chunk
@@ -404,7 +404,7 @@ class HttpServer(threading.Thread):
                 Logger.text('0\r\n\r\n')
             else:
                 self.client_socket.sendall(response_body)
-                Logger.text(response_body)
+                # Logger.text(response_body)
 
     def handle_dir(self, origin_path, web_path, is_html=False, is_head=False, is_chunked=False, range=None):
         response_body = []
@@ -476,12 +476,15 @@ class HttpServer(threading.Thread):
             'HTTP/1.1', '200 OK', len(response_body), 'text/plain', datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT'))
         self.client_socket.sendall(response_header.encode('utf-8') + response_body)
 
-def get_icon(entry):
+def get_icon_type(entry):
     icon_path = '/resource/icons/default.png' 
+    file_type = 'Unknown'
     if entry.is_dir():
         icon_path = '/resource/icons/file-folder.png'
+        file_type = 'Folder'
     else:
         file_extension = os.path.splitext(entry.name)[1].lower()
+        file_type = file_extension[1:].upper()
         if file_extension == '.png' or file_extension == '.jpg' or file_extension == '.jpeg' or file_extension == '.gif' or file_extension == '.bmp':
             icon_path = '/resource/icons/image.png'
         elif file_extension == '.js':
@@ -494,78 +497,97 @@ def get_icon(entry):
             icon_path = '/resource/icons/php.png'
         elif file_extension == '.ppt' or file_extension == '.pptx':
             icon_path = '/resource/icons/ppt.png'
+            file_type = 'PowerPoint'
         elif file_extension == '.txt':
             icon_path = '/resource/icons/txt.png'
+            file_type = 'Text'
         elif file_extension == '.mp4' or file_extension == '.avi' or file_extension == '.mov':
             icon_path = '/resource/icons/video.png'
         elif file_extension == '.doc' or file_extension == '.docx':
             icon_path = '/resource/icons/word.png'
+            file_type = 'Word'
         elif file_extension == '.xls' or file_extension == '.xlsx':
             icon_path = '/resource/icons/xls.png'
+            file_type = 'Excel'
         elif file_extension == '.zip' or file_extension == '.rar' or file_extension == '.7z':
             icon_path = '/resource/icons/zip.png'
         elif file_extension == '.py':
             icon_path = '/resource/icons/py.png'
-    return icon_path
+            file_type = 'Python'
+        elif file_extension == '.apk':
+            icon_path = '/resource/icons/apk.png'
+            file_type = 'Android Package'
+        elif file_extension == '.html':
+            icon_path = '/resource/icons/html.png'
+    return icon_path, file_type
 
+def get_folder_size(folder_path):
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        for f in filenames:
+            file_path = os.path.join(dirpath, f)
+            total_size += os.path.getsize(file_path)
+    return transfer_size(total_size)
+
+def transfer_size(size):
+    if size < 1024:
+        return '{} B'.format(size)
+    elif size < 1024 * 1024:
+        return '{:.2f} KB'.format(size / 1024)
+    elif size < 1024 * 1024 * 1024:
+        return '{:.2f} MB'.format(size / 1024 / 1024)
+    else:
+        return '{:.2f} GB'.format(size / 1024 / 1024 / 1024)
 
 def list_directory_html(origin_path, web_path):
+    links = []
+    parent_path = os.path.dirname(web_path)
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
+        <link rel="stylesheet" href="/resource/styles/fileList.css">
         <meta charset="UTF-8">
-        <title>Directory listing for ./{origin_path}</title>
-        <style>
-            body {{
-                font-family: Arial, sans-serif;
-                margin: 20px;
-            }}
-            h1 {{
-                color: #333;
-            }}
-            ul {{
-                list-style: none;
-                padding: 0;
-            }}
-            li {{
-                margin-bottom: 5px;
-            }}
-            a {{
-                text-decoration: none;
-                color: #007bff;
-            }}
-            a:hover {{
-                text-decoration: underline;
-            }}
-        </style>
+        <title>Directory listing for {origin_path}</title>
     </head>
     <body>
-        <h1>Directory listing for ./{origin_path}</h1>
-        <hr>
-        <ul>
-    """
+        <h1>Directory listing for {origin_path}</h1>
+        <hr class="separator">
+        <a href="/" class="navigation-link"><img src="/resource/icons/home.png" width="20" height="20">/</a>
+        <a href="{parent_path}" class="navigation-link"><img src="/resource/icons/go-back.png" width="20" height="20">../</a>
+        <hr class="separator">
 
+    <table>
+        <tr>
+            <th>File Name</th>
+            <th>File Type</th>
+            <th>Last Modified</th>
+            <th>Size</th>
+            <th>Delete<th>
+        </tr>
+    """
     try:
-        links = []
-        parent_path = os.path.dirname(web_path)
         if web_path == '/':
             web_path = ''
         Logger.debug('origin_path: {}'.format(origin_path))
         Logger.debug('web_path: {}'.format(web_path))
         with os.scandir(origin_path) as entries:
-            if origin_path != 'data\\':
-                links.extend([f'<li><a href="/"><img src="/resource/icons/home.png" width="20" height="20">/   </a>', 
-                              f'<a href="{parent_path}"><img src="/resource/icons/go-back.png" width="20" height="20">../</a></li>'])
+            # if origin_path != 'data\\':
+            #     links.extend([f'<li><a href="/"><img src="/resource/icons/home.png" width="20" height="20">/   </a>', 
+            #                 f'<a href="{parent_path}"><img src="/resource/icons/go-back.png" width="20" height="20">../</a></li>'])
             for entry in entries:
-                Logger.debug('entry: {}'.format(entry.name))
-                icon_path = get_icon(entry)
+                icon_path, file_type = get_icon_type(entry)
+                file_path = os.path.join(origin_path, entry.name)
                 if entry.is_dir():
-                    links.append(f'<li><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}/</a></li>')
+                    modification_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
+                    size = get_folder_size(file_path)
+                    links.append(f'<tr><td><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}/</a></td>')
+                    links.append(f'<td>{file_type}</td><td>{modification_time}</td><td>{size}</td></tr>')
                 else:
-                    Logger.debug('entry: {}'.format(entry.name))
-                    links.append(f'<li><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}</a></li>')
-
+                    modification_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
+                    file_size = transfer_size(os.path.getsize(file_path))
+                    links.append(f'<tr><td><a href="{web_path}/{entry.name}"><img src="{icon_path}" width="20" height="20">{entry.name}</a></td>')
+                    links.append(f'<td>{file_type}</td><td>{modification_time}</td><td>{file_size}</td></tr>')
         html_content += '\n'.join(links)
         html_content += """
         </ul>
