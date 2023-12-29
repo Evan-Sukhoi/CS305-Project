@@ -105,11 +105,8 @@ class HttpServer(threading.Thread):
 
             if 'Encryption' in headers and headers['Encryption'] == 'enable':
                 if 'Authorization' in headers:
-                    print(type(headers['Authorization']))
                     headers['Authorization'] = e.symmetric_decrypt(self.sym_key, base64.b64decode(headers['Authorization'])).decode('utf-8')
                 request_body = e.symmetric_decrypt(self.sym_key, base64.b64decode(request_body)).decode('utf-8')
-                print(headers['Authorization'])
-                print(request_body)
 
             header = 'WWW-Authenticate: Basic realm=Basic realm="Authorization Required"\r\n'
             cookie = None
@@ -154,6 +151,13 @@ class HttpServer(threading.Thread):
                 content_type = headers['Content-Type']
             else:
                 content_type = None
+
+            # write message
+            if 'Encryption' in headers and headers['Encryption'] == 'enable':
+                with open('data/test_encryption.txt', 'w') as file:
+                    file.write(request_body)
+                self.handle_response(200, 'OK')
+                return
 
             # handle the request
             if method == 'GET':
