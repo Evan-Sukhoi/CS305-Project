@@ -28,3 +28,11 @@
 **相对路径链接：链接没有以斜杠 / 开头，表示相对于当前页面的路径。比如，client1/aaaa/b.txt 将被解释为相对于当前页面的路径，链接到当前页面所在目录下的 client1/aaaa/b.txt 文件**
 
 而回到最开始的那个get请求`GET /client1/aaaa HTTP/1.1`, 注意到这是的当前目录其实是/client (然后请求获取其中的aaaa)。因此，第二个被拼接成 `/client1` + `/` +`client1/aaaa/bbb.txt`
+
+#### 12.29
+
+![](https://cdn.jsdelivr.net/gh/Evan-Sukhoi/ImageHost@main/img/20231230001248.png)
+
+## Copyright Info
+This project uses icons for HTML from:
+<a href="https://www.flaticon.com/free-icons/add-list" title="add list icons">Add list icons created by HideMaru - Flaticon</a>
