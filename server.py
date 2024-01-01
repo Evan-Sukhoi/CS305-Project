@@ -435,13 +435,15 @@ class HttpServer(threading.Thread):
                 response_body_range[-1] += tail
                 response_body = response_body_range
 
-        using_gzip = False
+        using_gzip = True
         content_length = 0
+        Logger.debug('content_length_unconpressed: {}'.format(content_length_unconpressed))
         for i in range(len(response_body)):
             if using_gzip:
                 response_body[i] = gzip.compress(response_body[i])
             # response_body[i] = binascii.hexlify(response_body[i])
             content_length += len(response_body[i])
+        Logger.debug('content_length_conpressed: {}'.format(content_length))
 
         # for chunk
         if is_chunked:
