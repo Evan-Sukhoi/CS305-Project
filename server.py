@@ -33,6 +33,7 @@ mimetypes.add_type('text/markdown', '.md')
 mimetypes.add_type('application/x-7z-compressed', '.7z')
 mimetypes.add_type('Unknown', '.rpf')
 
+text_types = ['text/html', 'text/plain', 'text/css', 'text/javascript', 'application/json', 'application/xml', 'application/javascript']
 
 class ClientAccount:
     def __init__(self, username, password):
@@ -400,7 +401,7 @@ class HttpServer(threading.Thread):
         unique_id = uuid.uuid4().hex[:13]  # eg. 1a2b3c4d5e6f7
         return unique_id
 
-    def handle_send(self, response_body, content_type, last_modified, is_chunked=False, range_info=None, is_head=False):
+    def handle_send(self, response_body, content_type, last_modified, is_chunked=False, range_info=None, is_head=False, using_gzip=False):
         code = '200 OK'
         content_length_unconpressed = len(response_body)
         response_body = [response_body]
@@ -435,15 +436,14 @@ class HttpServer(threading.Thread):
                 response_body_range[-1] += tail
                 response_body = response_body_range
 
-        using_gzip = True
         content_length = 0
-        Logger.debug('content_length_unconpressed: {}'.format(content_length_unconpressed))
-        for i in range(len(response_body)):
-            if using_gzip:
+        if using_gzip:
+            for i in range(len(response_body)):
                 response_body[i] = gzip.compress(response_body[i])
-            # response_body[i] = binascii.hexlify(response_body[i])
-            content_length += len(response_body[i])
-        Logger.debug('content_length_conpressed: {}'.format(content_length))
+                content_length += len(response_body[i])
+        else:
+            for i in range(len(response_body)):
+                content_length += len(response_body[i])
 
         # for chunk
         if is_chunked:
@@ -455,6 +455,7 @@ class HttpServer(threading.Thread):
             
         if using_gzip:
             response_header += 'Content-Encoding: gzip\r\n'
+            Logger.debug('Using gzip, content_length_unconpressed: {}, content_length_conpressed: {}'.format(content_length_unconpressed, content_length))
 
         # for session
         response_header += self.response_header if self.response_header else ''
@@ -503,15 +504,19 @@ class HttpServer(threading.Thread):
                         response_body.append(f'{entry.name}')
             dir_type = 'text/plain'
         response_body = str(response_body).encode('utf-8')
-        self.handle_send(response_body, dir_type, dir_time, is_chunked=is_chunked, range_info=range, is_head=is_head)
+        self.handle_send(response_body, dir_type, dir_time, is_chunked=is_chunked, range_info=range, is_head=is_head, using_gzip=True)
 
     def handle_file(self, path, is_head=False, is_chunked=False, range=None):
         extension = pathlib.Path(path).suffix
         file_type = mimetypes.types_map[extension]
+        use_gzip = False
+        print(file_type)
+        if file_type in text_types:
+            use_gzip = True
         file_time = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%a, %d %b %Y %H:%M:%S GMT')
         with open(path, 'rb') as f:
             response_body = f.read()
-        self.handle_send(response_body, file_type, file_time, is_chunked=is_chunked, range_info=range, is_head=is_head)
+        self.handle_send(response_body, file_type, file_time, is_chunked=is_chunked, range_info=range, is_head=is_head, using_gzip=use_gzip)
 
     def handle_error(self, code, message, headers=None, log=None):
         self.handle_response(code, message, headers, is_error=True, log=log)
