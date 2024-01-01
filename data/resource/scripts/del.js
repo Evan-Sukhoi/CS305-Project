@@ -87,3 +87,52 @@ function makeDir(filePath) {
         });
     }
 }
+
+function rangeDownload(filePath, contentLength, fileName) {
+    console.log("range download");
+    const range = 102400; // 100KB
+    const rangePairs = [];
+    const totalRanges = Math.ceil(contentLength / range);
+    console.log(totalRanges);
+    
+    // Function to download each range and concatenate the responses
+    const downloadRange = (start, end) => {
+        const rangeHeaders = `bytes=${start}-${end}`;
+        return fetch(filePath, {
+            method: 'GET',
+            headers: {
+                'Range': rangeHeaders
+            }
+        }).then(response => response.arrayBuffer());
+    };
+
+    // Create an array of promises for each range
+    for (let i = 0; i < totalRanges; i++) {
+        const start = i * range;
+        const end = (i === totalRanges - 1) ? contentLength - 1 : (i + 1) * range - 1;
+        rangePairs.push(downloadRange(start, end));
+    }
+
+    // After all promises resolve, concatenate the array buffers and save the file
+    Promise.all(rangePairs)
+        .then(responses => {
+            const combinedArrayBuffer = new Uint8Array(contentLength);
+            let offset = 0;
+            responses.forEach(response => {
+                combinedArrayBuffer.set(new Uint8Array(response), offset);
+                offset += response.byteLength;
+            });
+
+            // Convert array buffer to Blob
+            const combinedBlob = new Blob([combinedArrayBuffer], { type: 'application/octet-stream' });
+
+            // Create a download link and trigger download
+            const downloadLink = document.createElement('a');
+            downloadLink.href = URL.createObjectURL(combinedBlob);
+            downloadLink.download = fileName || 'downloaded_file'; // Ensure a default filename
+            downloadLink.click();
+        })
+        .catch(error => {
+            console.error('Error downloading ranges:', error);
+        });
+}
