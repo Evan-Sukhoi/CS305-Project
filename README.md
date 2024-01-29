@@ -2,6 +2,10 @@
 
 **This is the final project of Computer Network 2023Fall course (CS305) of SUSTech.**
 
+本Project基础部分满分，Bonus部分仅`Encryption`由于调库被扣分，其余均满分。
+
+请严格遵守南方科技大学计算机系本科生承诺规定，仅供参考。
+
 ## 开发日志
 #### 12.28
 当client发送一个get请求时，假设请求头第一行是`GET /client1/aaaa HTTP/1.1`，然后server给他返回一个html，里面包含了两个链接：
