@@ -4,6 +4,8 @@
 
 本Project基础部分满分，Bonus部分仅`Encryption`由于调库被扣分，其余均满分。
 
+![](https://cdn.jsdelivr.net/gh/Evan-Sukhoi/ImageHost@main/img/b84947b41ef2fceb640997bc246aa06.jpg)
+
 请严格遵守南方科技大学计算机系本科生承诺规定，仅供参考。
 
 ## 开发日志
